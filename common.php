@@ -627,10 +627,8 @@ function config_oauth()
     if (getConfig('Drive_ver')=='CN') {
         // CN 21Vianet
         // https://portal.azure.cn
-        //$_SERVER['client_id'] = '04c3ca0b-8d07-4773-85ad-98b037d25631';
-        //$_SERVER['client_secret'] = 'h8@B7kFVOmj0+8HKBWeNTgl@pU/z4yLB'; // expire 20200902
-        $_SERVER['client_id'] = 'b15f63f5-8b72-48b5-af69-8cab7579bff7';
-        $_SERVER['client_secret'] = '0IIuZ1Kcq_YI3NrkZFwsniEo~BoP~8_M22';
+        $_SERVER['client_id'] = '31f3bed5-b9d9-4173-86a4-72c73d278617';
+        $_SERVER['client_secret'] = 'P5-ZNtFK-tT90J.We_-DcsuB8uV7AfjL8Y';
         $_SERVER['oauth_url'] = 'https://login.partner.microsoftonline.cn/common/oauth2/v2.0/';
         $_SERVER['api_url'] = 'https://microsoftgraph.chinacloudapi.cn/v1.0/me/drive/root';
         $_SERVER['scope'] = 'https://microsoftgraph.chinacloudapi.cn/Files.ReadWrite.All offline_access';
@@ -1046,6 +1044,10 @@ function get_thumbnails_url($path = '/', $location = 0)
 
 function bigfileupload($path)
 {
+    if (!$_SERVER['admin']) {
+        if (!is_guestup_path($path)) return output('Not_Guest_Upload_Folder', 400);
+        if (strpos($_GET['upbigfilename'], '../')!==false) return output('Not_Allow_Cross_Path', 400);
+    }
     $path1 = path_format($_SERVER['list_path'] . path_format($path));
     if (substr($path1,-1)=='/') $path1=substr($path1,0,-1);
     if ($_GET['upbigfilename']!=''&&$_GET['filesize']>0) {
@@ -1118,53 +1120,67 @@ function adminoperate($path)
 {
     $path1 = path_format($_SERVER['list_path'] . path_format($path));
     if (substr($path1,-1)=='/') $path1=substr($path1,0,-1);
+    $tmpget = $_GET;
+    $tmppost = $_POST;
     $tmparr['statusCode'] = 0;
-    if (isset($_GET['rename_newname'])&&$_GET['rename_newname']!=$_GET['rename_oldname'] && $_GET['rename_newname']!='') {
+    if ( (isset($tmpget['rename_newname'])&&$tmpget['rename_newname']!=$tmpget['rename_oldname'] && $tmpget['rename_newname']!='') || (isset($tmppost['rename_newname'])&&$tmppost['rename_newname']!=$tmppost['rename_oldname'] && $tmppost['rename_newname']!='') ) {
+        if (isset($tmppost['rename_newname'])) $VAR = 'tmppost';
+        else $VAR = 'tmpget';
         // rename 重命名
-        $oldname = spurlencode($_GET['rename_oldname']);
+        $oldname = spurlencode(${$VAR}['rename_oldname']);
         $oldname = path_format($path1 . '/' . $oldname);
-        $data = '{"name":"' . $_GET['rename_newname'] . '"}';
+        $data = '{"name":"' . ${$VAR}['rename_newname'] . '"}';
                 //echo $oldname;
         $result = MSAPI('PATCH',$oldname,$data,$_SERVER['access_token']);
         //savecache('path_' . $path1, json_decode('{}',true), $_SERVER['disktag'], 1);
         return output($result['body'], $result['stat']);
     }
-    if (isset($_GET['delete_name'])) {
+    if (isset($tmpget['delete_name']) || isset($tmppost['delete_name'])) {
+        if (isset($tmppost['delete_name'])) $VAR = 'tmppost';
+        else $VAR = 'tmpget';
         // delete 删除
-        $filename = spurlencode($_GET['delete_name']);
+        $filename = spurlencode(${$VAR}['delete_name']);
         $filename = path_format($path1 . '/' . $filename);
                 //echo $filename;
         $result = MSAPI('DELETE', $filename, '', $_SERVER['access_token']);
         //savecache('path_' . $path1, json_decode('{}',true), $_SERVER['disktag'], 1);
         return output($result['body'], $result['stat']);
     }
-    if (isset($_GET['operate_action'])&&$_GET['operate_action']==getconstStr('Encrypt')) {
+    if ( (isset($tmpget['operate_action'])&&$tmpget['operate_action']==getconstStr('Encrypt')) || (isset($tmppost['operate_action'])&&$tmppost['operate_action']==getconstStr('Encrypt')) ) {
+        if (isset($tmppost['operate_action'])) $VAR = 'tmppost';
+        else $VAR = 'tmpget';
         // encrypt 加密
         if (getConfig('passfile')=='') return message(getconstStr('SetpassfileBfEncrypt'),'',403);
-        if ($_GET['encrypt_folder']=='/') $_GET['encrypt_folder']=='';
-        $foldername = spurlencode($_GET['encrypt_folder']);
+        if (${$VAR}['encrypt_folder']=='/') ${$VAR}['encrypt_folder']=='';
+        $foldername = spurlencode(${$VAR}['encrypt_folder']);
         $filename = path_format($path1 . '/' . $foldername . '/' . urlencode(getConfig('passfile')));
                 //echo $foldername;
-        $result = MSAPI('PUT', $filename, $_GET['encrypt_newpass'], $_SERVER['access_token']);
+        $result = MSAPI('PUT', $filename, ${$VAR}['encrypt_newpass'], $_SERVER['access_token']);
         $path1 = path_format($path1 . '/' . $foldername );
         if ($path1!='/'&&substr($path1,-1)=='/') $path1=substr($path1,0,-1);
         savecache('path_' . $path1 . '/?password', '', $_SERVER['disktag'], 1);
         return output($result['body'], $result['stat']);
     }
-    if (isset($_GET['move_folder'])) {
+    if (isset($tmpget['move_folder']) || isset($tmppost['move_folder'])) {
+        if (isset($tmppost['move_folder'])) $VAR = 'tmppost';
+        else $VAR = 'tmpget';
         // move 移动
         $moveable = 1;
-        if ($path == '/' && $_GET['move_folder'] == '/../') $moveable=0;
-        if ($_GET['move_folder'] == $_GET['move_name']) $moveable=0;
+        if ($path == '/' && ${$VAR}['move_folder'] == '/../') $moveable=0;
+        if (${$VAR}['move_folder'] == ${$VAR}['move_name']) $moveable=0;
         if ($moveable) {
-            $filename = spurlencode($_GET['move_name']);
+            $filename = spurlencode(${$VAR}['move_name']);
             $filename = path_format($path1 . '/' . $filename);
-            $foldername = path_format('/'.urldecode($path1).'/'.$_GET['move_folder']);
+            if (${$VAR}['move_folder'] == '/../') {
+                $foldername = path_format('/' . urldecode($path1) . '/');
+                $foldername = substr($foldername, 0, -1);
+                $foldername = splitlast($foldername, '/')[0];
+            } else $foldername = path_format('/' . urldecode($path1) . '/' . ${$VAR}['move_folder']);
             $data = '{"parentReference":{"path": "/drive/root:'.$foldername.'"}}';
             $result = MSAPI('PATCH', $filename, $data, $_SERVER['access_token']);
             //savecache('path_' . $path1, json_decode('{}',true), $_SERVER['disktag'], 1);
-            if ($_GET['move_folder'] == '/../') $path2 = path_format( substr($path1, 0, strrpos($path1, '/')) . '/' );
-            else $path2 = path_format( $path1 . '/' . $_GET['move_folder'] . '/' );
+            if (${$VAR}['move_folder'] == '/../') $path2 = path_format( substr($path1, 0, strrpos($path1, '/')) . '/' );
+            else $path2 = path_format( $path1 . '/' . ${$VAR}['move_folder'] . '/' );
             if ($path2!='/'&&substr($path2,-1)=='/') $path2=substr($path2,0,-1);
             savecache('path_' . $path2, json_decode('{}',true), $_SERVER['disktag'], 1);
             return output($result['body'], $result['stat']);
@@ -1172,11 +1188,13 @@ function adminoperate($path)
             return output('{"error":"'.getconstStr('CannotMove').'"}', 403);
         }
     }
-    if (isset($_GET['copy_name'])) {
+    if (isset($tmpget['copy_name']) || isset($tmppost['copy_name'])) {
+        if (isset($tmppost['copy_name'])) $VAR = 'tmppost';
+        else $VAR = 'tmpget';
         // copy 复制
-        $filename = spurlencode($_GET['copy_name']);
+        $filename = spurlencode(${$VAR}['copy_name']);
         $filename = path_format($path1 . '/' . $filename);
-        $namearr = splitlast($_GET['copy_name'], '.');
+        $namearr = splitlast(${$VAR}['copy_name'], '.');
         if ($namearr[0]!='') {
             $newname = $namearr[0] . ' (' . getconstStr('Copy') . ')';
             if ($namearr[1]!='') $newname .= '.' . $namearr[1];
@@ -1203,14 +1221,14 @@ function adminoperate($path)
         }
         //echo $result['stat'].$result['body'];
             //savecache('path_' . $path1, json_decode('{}',true), $_SERVER['disktag'], 1);
-            //if ($_GET['move_folder'] == '/../') $path2 = path_format( substr($path1, 0, strrpos($path1, '/')) . '/' );
-            //else $path2 = path_format( $path1 . '/' . $_GET['move_folder'] . '/' );
+            //if ($tmpget['move_folder'] == '/../') $path2 = path_format( substr($path1, 0, strrpos($path1, '/')) . '/' );
+            //else $path2 = path_format( $path1 . '/' . $tmpget['move_folder'] . '/' );
             //savecache('path_' . $path2, json_decode('{}',true), $_SERVER['disktag'], 1);
         return output($result['body'], $result['stat']);
     }
-    if (isset($_POST['editfile'])) {
+    if (isset($tmppost['editfile'])) {
         // edit 编辑
-        $data = $_POST['editfile'];
+        $data = $tmppost['editfile'];
         /*TXT一般不会超过4M，不用二段上传
         $filename = $path1 . ':/createUploadSession';
         $response=MSAPI('POST',$filename,'{"item": { "@microsoft.graph.conflictBehavior": "replace"  }}',$_SERVER['access_token']);
@@ -1221,21 +1239,23 @@ function adminoperate($path)
         $resultarry = json_decode($result,true);
         if (isset($resultarry['error'])) return message($resultarry['error']['message']. '<hr><a href="javascript:history.back(-1)">'.getconstStr('Back').'</a>','Error',403);
     }
-    if (isset($_GET['create_name'])) {
+    if (isset($tmpget['create_name']) || isset($tmppost['create_name'])) {
+        if (isset($tmppost['create_name'])) $VAR = 'tmppost';
+        else $VAR = 'tmpget';
         // create 新建
-        if ($_GET['create_type']=='file') {
-            $filename = spurlencode($_GET['create_name']);
+        if (${$VAR}['create_type']=='file') {
+            $filename = spurlencode(${$VAR}['create_name']);
             $filename = path_format($path1 . '/' . $filename);
-            $result = MSAPI('PUT', $filename, $_GET['create_text'], $_SERVER['access_token']);
+            $result = MSAPI('PUT', $filename, ${$VAR}['create_text'], $_SERVER['access_token']);
         }
-        if ($_GET['create_type']=='folder') {
-            $data = '{ "name": "' . $_GET['create_name'] . '",  "folder": { },  "@microsoft.graph.conflictBehavior": "rename" }';
+        if (${$VAR}['create_type']=='folder') {
+            $data = '{ "name": "' . ${$VAR}['create_name'] . '",  "folder": { },  "@microsoft.graph.conflictBehavior": "rename" }';
             $result = MSAPI('children', $path1, $data, $_SERVER['access_token']);
         }
         //savecache('path_' . $path1, json_decode('{}',true), $_SERVER['disktag'], 1);
         return output($result['body'], $result['stat']);
     }
-    if (isset($_GET['RefreshCache'])) {
+    if (isset($tmpget['RefreshCache'])) {
         $path1 = path_format($_SERVER['list_path'] . path_format($path));
         if ($path1!='/'&&substr($path1,-1)=='/') $path1=substr($path1,0,-1);
         savecache('path_' . $path1 . '/?password', '', $_SERVER['disktag'], 1);
@@ -1707,8 +1727,7 @@ function get_refresh_token()
     </form>
 </div>
     <script>
-        function notnull(t)
-        {
+        function notnull(t) {
             if (t.disktag_add.value==\'\') {
                 alert(\''.getconstStr('OnedriveDiskTag').'\');
                 return false;
@@ -1718,7 +1737,7 @@ function get_refresh_token()
                 alert("Do not input ' . $envs . '");
                 return false;
             }
-            var reg = /^[a-zA-Z]([-_a-zA-Z0-9]{1,20})$/;
+            var reg = /^[a-zA-Z]([_a-zA-Z0-9]{1,20})$/;
             if (!reg.test(t.disktag_add.value)) {
                 alert(\''.getconstStr('TagFormatAlert').'\');
                 return false;
@@ -1756,11 +1775,15 @@ function get_refresh_token()
 function EnvOpt($needUpdate = 0)
 {
     global $constStr;
+    global $CommonEnv;
     global $ShowedCommonEnv;
     global $ShowedInnerEnv;
     global $timezones;
     asort($ShowedCommonEnv);
     asort($ShowedInnerEnv);
+    $envs = '';
+    foreach ($CommonEnv as $env) $envs .= '\'' . $env . '\', ';
+
     $html = '<title>OneManager '.getconstStr('Setup').'</title>';
     if (isset($_POST['updateProgram'])&&$_POST['updateProgram']==getconstStr('updateProgram')) {
         $response = setConfigResponse(OnekeyUpate($_POST['auth'], $_POST['project'], $_POST['branch']));
@@ -1778,8 +1801,25 @@ function EnvOpt($needUpdate = 0)
     if (isset($_POST['submit1'])) {
         $_SERVER['disk_oprating'] = '';
         foreach ($_POST as $k => $v) {
-            if (in_array($k, $ShowedCommonEnv)||in_array($k, $ShowedInnerEnv)||$k=='disktag_del' || $k=='disktag_add') {
+            if (in_array($k, $ShowedCommonEnv) || in_array($k, $ShowedInnerEnv) || $k=='disktag_del' || $k=='disktag_add' || $k=='disktag_rename') {
                 $tmp[$k] = $v;
+            }
+            if ($k=='disktag_newname') {
+                $v = preg_replace('/[^0-9a-zA-Z|_]/i', '', $v);
+                $f = substr($v, 0, 1);
+                if (strlen($v)==1) $v .= '_';
+                if (in_array($v, $CommonEnv)) {
+                    return message('Do not input ' . $envs . '<br><button onclick="location.href = location.href;">'.getconstStr('Refresh').'</button><script>document.cookie=\'disktag=; path=/\';</script>', 'Error', 201);
+                } elseif (!(('a'<=$f && $f<='z') || ('A'<=$f && $f<='Z'))) {
+                    return message('Please start with letters');
+                } else {
+                    $tmp[$k] = $v;
+                }
+            }
+            if ($k=='disktag_sort') {
+                $td = implode('|', json_decode($v));
+                if (strlen($td)==strlen(getConfig('disktag'))) $tmp['disktag'] = $td;
+                else return message('Something wrong.');
             }
             if ($k == 'disk') $_SERVER['disk_oprating'] = $v;
         }
@@ -1797,7 +1837,6 @@ function EnvOpt($needUpdate = 0)
             $html = api_error_msg($response);
             $title = 'Error';
         } else {
-                //WaitSCFStat();
             $html .= getconstStr('Success') . '!<br>
 <button onclick="location.href = location.href;">'.getconstStr('Refresh').'</button>';
             $title = getconstStr('Setup');
@@ -1876,18 +1915,102 @@ function EnvOpt($needUpdate = 0)
         <tr><td><input type="submit" name="submit1" value="'.getconstStr('Setup').'"></td></tr>
     </form>
 </table><br>';
-    foreach (explode("|",getConfig('disktag')) as $disktag) {
+    $disktags = explode('|', getConfig('disktag'));
+    if (count($disktags)>1) {
+        $html .= '
+<script src="//cdn.bootcss.com/Sortable/1.8.3/Sortable.js"></script>
+<style>
+    .sortable-ghost {
+        opacity: 0.4;
+        background-color: #1748ce;
+    }
+
+    #sortdisks td {
+        cursor: move;
+    }
+</style>
+<table border=1>
+    <form id="sortdisks_form" action="" method="post" style="margin: 0" onsubmit="return dragsort(this);">
+    <tr id="sortdisks">
+        <input type="hidden" name="disktag_sort" value="">';
+        $num = 0;
+        foreach ($disktags as $disktag) {
+            if ($disktag!='') {
+                $num++;
+                $html .= '
+        <td>' . $disktag . '</td>';
+            }
+        }
+        $html .= '
+    </tr>
+    <tr><td colspan="' . $num . '">' . getconstStr('DragSort') . '<input type="submit" name="submit1" value="' . getconstStr('SubmitSortdisks') . '"></td></tr>
+    </form>
+</table>
+<script>
+    var disks=' . json_encode($disktags) . ';
+    function change(arr, oldindex, newindex) {
+        //console.log(oldindex + "," + newindex);
+        tmp=arr.splice(oldindex-1, 1);
+        if (oldindex > newindex) {
+            tmp1=JSON.parse(JSON.stringify(arr));
+            tmp1.splice(newindex-1, arr.length-newindex+1);
+            tmp2=JSON.parse(JSON.stringify(arr));
+            tmp2.splice(0, newindex-1);
+        } else {
+            tmp1=JSON.parse(JSON.stringify(arr));
+            tmp1.splice(newindex-1, arr.length-newindex+1);
+            tmp2=JSON.parse(JSON.stringify(arr));
+            tmp2.splice(0, newindex-1);
+        }
+        arr=tmp1.concat(tmp, tmp2);
+        //console.log(arr);
+        return arr;
+    }
+    function dragsort(t) {
+        if (t.disktag_sort.value==\'\') {
+            alert(\'' . getconstStr('DragSort') . '\');
+            return false;
+        }
+        envs = [' . $envs . '];
+        if (envs.indexOf(t.disktag_sort.value)>-1) {
+            alert("Do not input ' . $envs . '");
+            return false;
+        }
+        return true;
+    }
+    Sortable.create(document.getElementById(\'sortdisks\'), {
+        animation: 150,
+        onEnd: function (evt) { //拖拽完毕之后发生该事件
+            //console.log(evt.oldIndex);
+            //console.log(evt.newIndex);
+            if (evt.oldIndex!=evt.newIndex) {
+                disks=change(disks, evt.oldIndex, evt.newIndex);
+                document.getElementById(\'sortdisks_form\').disktag_sort.value=JSON.stringify(disks);
+            }
+        }
+    });
+</script><br>';
+    }
+    foreach ($disktags as $disktag) {
         if ($disktag!='') {
             $html .= '
 <table border=1 width=100%>
-    <form action="" method="post">
         <tr>
-            <td colspan="2">'.$disktag.'：
-                <input type="hidden" name="disktag_del" value="'.$disktag.'">
-                <input type="submit" name="submit1" value="'.getconstStr('DelDisk').'">
+            <td>
+                <form action="" method="post" style="margin: 0">
+                    <input type="hidden" name="disktag_del" value="'.$disktag.'">
+                    <input type="submit" name="submit1" value="'.getconstStr('DelDisk').'">
+                </form>
+            </td>
+            <td>
+                <form action="" method="post" style="margin: 0" onsubmit="return renametag(this);">
+                    <input type="hidden" name="disktag_rename" value="'.$disktag.'">
+                    <input type="text" name="disktag_newname" value="'.$disktag.'">
+                    <input type="submit" name="submit1" value="'.getconstStr('RenameDisk').'">
+                </form>
             </td>
         </tr>
-    </form>';
+    ';
             if (getConfig('refresh_token', $disktag)!='') {
                 $html .= '
     <form name="'.$disktag.'" action="" method="post">
@@ -1900,7 +2023,7 @@ function EnvOpt($needUpdate = 0)
         </tr>';
                 }
                 $html .= '
-        <tr><td><input type="submit" name="submit1" value="'.getconstStr('Setup').'"></td></tr>
+        <tr><td></td><td><input type="submit" name="submit1" value="'.getconstStr('Setup').'"></td></tr>
     </form>';
             } else {
                 $html .= '
@@ -1948,6 +2071,27 @@ function EnvOpt($needUpdate = 0)
     <input type="submit" name="updateProgram" value="'.getconstStr('updateProgram').'">
 </form>
 <script>
+    function renametag(t) {
+        if (t.disktag_newname.value==\'\') {
+            alert(\''.getconstStr('OnedriveDiskTag').'\');
+            return false;
+        }
+        if (t.disktag_newname.value==t.disktag_rename.value) {
+            return false;
+        }
+        envs = [' . $envs . '];
+        if (envs.indexOf(t.disktag_newname.value)>-1) {
+            alert("Do not input ' . $envs . '");
+            return false;
+        }
+        var reg = /^[a-zA-Z]([_a-zA-Z0-9]{1,20})$/;
+        if (!reg.test(t.disktag_newname.value)) {
+            alert(\''.getconstStr('TagFormatAlert').'\');
+            return false;
+        }
+        return true;
+    }
+
     function querybranchs()
     {
         var xhr = new XMLHttpRequest();
@@ -1997,7 +2141,7 @@ function render_list($path = '', $files = '')
     if (strpos(__DIR__, ':')) $slash = '\\';
 
     if (isset($files['children']['index.html']) && !$_SERVER['admin']) {
-        $htmlcontent = fetch_files(spurlencode(path_format($path . '/index.html'),'/'))['content'];
+        $htmlcontent = fetch_files(spurlencode(path_format(urldecode($path) . '/index.html'),'/'))['content'];
         return output($htmlcontent['body'], $htmlcontent['stat']);
     }
     $path = str_replace('%20','%2520',$path);
