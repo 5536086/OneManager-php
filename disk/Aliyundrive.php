@@ -6,7 +6,8 @@ class Aliyundrive {
 
     function __construct($tag) {
         $this->disktag = $tag;
-        $this->auth_url = 'https://websv.aliyundrive.com/token/refresh';
+        //$this->auth_url = 'https://websv.aliyundrive.com/token/refresh';
+        $this->auth_url = 'https://auth.aliyundrive.com/v2/account/token';
         $this->api_url = 'https://api.aliyundrive.com/v2';
         $this->driveId = getConfig('driveId', $tag);
         $res = $this->get_access_token(getConfig('refresh_token', $tag));
@@ -75,7 +76,7 @@ class Aliyundrive {
                 $tmp['list'][$filename]['name'] = $file['name'];
                 $tmp['list'][$filename]['time'] = $file['updated_at'];
                 $tmp['list'][$filename]['size'] = $file['size'];
-                $tmp['childcount']++;
+                //$tmp['childcount']++;
             }
         } elseif (isset($files['code'])||isset($files['error'])) {
             return $files;
@@ -89,8 +90,6 @@ class Aliyundrive {
         global $exts;
         while (substr($path, -1)=='/') $path = substr($path, 0, -1);
         if ($path == '') $path = '/';
-        //$files = getcache('path_' . $path, $this->disktag);
-        //if (!$files) {
         if (!($files = getcache('path_' . $path, $this->disktag))) {
             if ($path == '/' || $path == '') {
                 $files = $this->fileList('root');
@@ -112,25 +111,38 @@ class Aliyundrive {
                             $files['time'] = $item['updated_at'];
                             $files['size'] = $item['size'];
                         } else $files = $item;
-                        
                     }
-                    
                 }
                 //echo $files['name'];
             }
             if ($files['type']=='file') {
-                if (in_array(splitlast($files['name'],'.')[1], $exts['txt'])) {
-                    if (!(isset($files['content'])&&$files['content']['stat']==200)) {
-                        $content1 = curl('GET', $files['download_url']);
-                        $files['content'] = $content1;
-                        savecache('path_' . $path, $files, $this->disktag);
+                if (in_array(strtolower(splitlast($files['name'],'.')[1]), $exts['txt'])) {
+                    if ($files['size']<1024*1024) {
+                        if (!(isset($files['content'])&&$files['content']['stat']==200)) {
+                            $header['Referer'] = 'https://www.aliyundrive.com/';
+                            $header['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.90 Safari/537.36';
+                            $content1 = curl('GET', $files['download_url'], '', $header);
+                            $tmp = null;
+                            $tmp = json_decode(json_encode($content1), true);
+                            if ($tmp['body']===null) {
+                                $tmp['body'] = iconv("GBK", 'UTF-8//TRANSLIT', $content1['body']);
+                                $tmp = json_decode(json_encode($tmp), true);
+                                if ($tmp['body']!==null) $content1['body'] = $tmp['body'];
+                            }
+                            //error_log1('body : ' . $content1['body'] . PHP_EOL);
+                            $files['content'] = $content1;
+                            savecache('path_' . $path, $files, $this->disktag);
+                        }
+                    } else {
+                        $files['content']['stat'] = 202;
+                        $files['content']['body'] = 'File too large.';
                     }
-                    error_log1($files['name'] . ' : ' . json_encode($files['content']) . PHP_EOL);
+                    //error_log1($files['name'] . ' : ' . json_encode($files['content']) . PHP_EOL);
                 }
             }
             if (!$files) {
                 $files['error']['code'] = 'Not Found';
-                $files['error']['message'] = 'Not Found';
+                $files['error']['message'] = $path . ' Not Found';
                 $files['error']['stat'] = 404;
             } elseif (isset($files['stat'])) {
                 $files['error']['stat'] = $files['stat'];
@@ -174,8 +186,8 @@ class Aliyundrive {
         $header["content-type"] = "application/json; charset=utf-8";
         $header['authorization'] = 'Bearer ' . $this->access_token;
 
-        $data['limit'] = 50;
-        $data['marker'] = NULL;
+        $data['limit'] = 200;
+        $data['marker'] = null;
         $data['drive_id'] = $this->driveId;
         $data['parent_file_id'] = $parent_file_id;
         $data['image_thumbnail_process'] = 'image/resize,w_160/format,jpeg';
@@ -187,7 +199,19 @@ class Aliyundrive {
 
         $res = curl('POST', $url, json_encode($data), $header);
         //error_log1($res['stat'] . $res['body']);
-        if ($res['stat']==200) return json_decode($res['body'], true);
+        if ($res['stat']==200) {
+            $body = json_decode($res['body'], true);
+            $body1 = $body;
+            while ($body1['next_marker']!='') {
+                $data['marker'] = $body1['next_marker'];
+                $res1 = null;
+                $res1 = curl('POST', $url, json_encode($data), $header);
+                $body1 = json_decode($res1['body'], true);
+                $body['items'] = array_merge($body['items'], $body1['items']);
+            }
+            return $body;
+            //return json_decode($res['body'], true);
+        }
         else return $res;
     }
 
@@ -612,7 +636,7 @@ class Aliyundrive {
         if (isset($_GET['SelectDrive'])) {
             if ($this->access_token == '') {
                 if (isset($_POST['refresh_token'])) {
-                    $res = curl('POST', $this->auth_url, json_encode([ 'refresh_token' => $_POST['refresh_token'] ]), ["content-type"=>"application/json; charset=utf-8"]);
+                    $res = curl('POST', $this->auth_url, json_encode([ 'refresh_token' => $_POST['refresh_token'], 'grant_type' => 'refresh_token' ]), ["content-type"=>"application/json; charset=utf-8"]);
                     //return output($res['body']);
                     if ($res['stat']!=200) {
                         return message($res['body'], $res['stat'], $res['stat']);
@@ -645,7 +669,7 @@ class Aliyundrive {
                 }
             }
             if (!isset($result['default_drive_id'])) {
-                $res = curl('POST', $this->auth_url, json_encode([ 'refresh_token' => getConfig('refresh_token', $this->disktag) ]), ["content-type"=>"application/json; charset=utf-8"]);
+                $res = curl('POST', $this->auth_url, json_encode([ 'refresh_token' => getConfig('refresh_token', $this->disktag), 'grant_type' => 'refresh_token' ]), ["content-type"=>"application/json; charset=utf-8"]);
                     //return output($res['body']);
                 if ($res['stat']!=200) {
                     return message($res['body'], $res['stat'], $res['stat']);
@@ -789,6 +813,7 @@ class Aliyundrive {
         if (!($this->access_token = getcache('access_token', $this->disktag))) {
             $p=0;
             $tmp1['refresh_token'] = $refresh_token;
+            $tmp1['grant_type'] = 'refresh_token';
             while ($response['stat']==0&&$p<3) {
                 $response = curl('POST', $this->auth_url, json_encode($tmp1), ["content-type"=>"application/json; charset=utf-8"]);
                 $p++;
